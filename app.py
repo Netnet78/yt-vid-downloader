@@ -6,6 +6,7 @@ import threading
 import queue
 import os
 import subprocess
+import random
 
 
 # Colors
@@ -16,6 +17,16 @@ BLACK = "#1E1E1E"
 # Essential variables
 quality = None
 
+# Path save slot
+path = None
+if os.path.exists("config.txt"):
+    with open("config.txt", "r") as f:
+        path = f.read()
+else:
+    with open("config.txt", "w") as f:
+        path = os.path.join(os.path.expanduser("~"), "Youtube Video Downloader", "Downloaded")
+        f.write(path)
+
 
 class App(ctk.CTk):
     def __init__(self):
@@ -23,7 +34,7 @@ class App(ctk.CTk):
         self.title("Youtube Videos Downloader")
         self.geometry("800x500")
         self.resizable(False, False)
-        self.output_dir = os.path.join(os.path.expanduser("~"), "Youtube Video Downloader", "Downloaded")
+        self.output_dir = path
         os.makedirs(self.output_dir, exist_ok=True)
 
         # Set the theme
@@ -46,7 +57,7 @@ class App(ctk.CTk):
         self.logo_text_frame = ctk.CTkFrame(self.title_frame, fg_color="transparent")
         self.logo_text_frame.pack(fill="both", padx=10, pady=5)
         self.frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.frame.place(relx=0, rely=0.25, relwidth=1, relheight=0.85)
+        self.frame.place(relx=0, rely=0.2, relwidth=1, relheight=0.85)
         self.quality_frame = ctk.CTkFrame(self.frame, fg_color="transparent")
         self.quality_frame.place(relx=0.09, rely=0.37, relwidth=1, relheight=0.3)
         self.downloads_frame = ctk.CTkFrame(self.frame, fg_color="transparent")
@@ -69,15 +80,15 @@ class App(ctk.CTk):
         self.subtitle_label.pack(anchor="w")
 
         # Entry URL section
-        self.label = ctk.CTkLabel(self.frame, text="Please paste the video URL inside this entry below:", font=("Inter", 14))
+        self.label = ctk.CTkLabel(self.frame, text="🔗 Please paste the video URL inside this entry below:", font=("Inter", 14))
         self.label.pack(pady=5)
         self.entry = ctk.CTkEntry(self.frame, width=300)
         self.entry.pack(pady=5)
 
         # Output directory button
-        self.output_dir_button = ctk.CTkButton(self.frame, text="Select Output Location", command=self.select_output_dir)
+        self.output_dir_button = ctk.CTkButton(self.frame, text="📁 Select Output Location", command=self.select_output_dir)
         self.output_dir_button.pack(pady=10)
-        self.open_folder_button = ctk.CTkButton(self.frame, text="Open Output Folder", command=lambda: os.startfile(self.output_dir))
+        self.open_folder_button = ctk.CTkButton(self.frame, text="🔎 Open Output Folder", command=lambda: os.startfile(self.output_dir))
         self.open_folder_button.pack(pady=10)
 
         # Quality selection section
@@ -101,9 +112,9 @@ class App(ctk.CTk):
         self.quality_radio7.pack(side="left")
 
         # Download button
-        self.video_button = ctk.CTkButton(self.downloads_frame, text="Download as video", command=lambda: self.start_download(self.quality.get(), self.entry))
+        self.video_button = ctk.CTkButton(self.downloads_frame, text="📼 Download as video", command=lambda: self.start_download(self.quality.get(), self.entry))
         self.video_button.pack(side="left", padx=5)
-        self.audio_button = ctk.CTkButton(self.downloads_frame, text="Download as audio", command=lambda: self.start_download(self.quality.get(), self.entry, True))
+        self.audio_button = ctk.CTkButton(self.downloads_frame, text="🔉Download as audio", command=lambda: self.start_download(self.quality.get(), self.entry, True))
         self.audio_button.pack(side="left", padx=5)
 
         # Video output section
@@ -118,6 +129,8 @@ class App(ctk.CTk):
         self.output_dir = filedialog.askdirectory()
         if self.output_dir:
             self.output_label.configure(text=f"Output Location: {self.output_dir}")
+            with open("config.txt", "w") as f:
+                f.write(self.output_dir)
 
     def check_queue(self):
         try:
@@ -150,6 +163,8 @@ class App(ctk.CTk):
                 self.stream.download(output_path=output_dir)
                 self.queue.put(f"Downloaded {self.yt.title} as audio (.m4a).")
             threading.Thread(target=audio_download).start()
+            self.audio_button.configure(state="normal")
+            self.video_button.configure(state="normal")
         else:
             if quality == "1080p":
                 video_stream = self.yt.streams.filter(res="1080p", file_extension="mp4").first()
@@ -166,7 +181,7 @@ class App(ctk.CTk):
             elif quality == "auto":
                 video_stream = self.yt.streams.get_highest_resolution()
             else:
-                self.queue.put("Error: Invalid quality.")
+                self.queue.put("❌ Error: Invalid quality.")
                 return
 
             audio_stream = self.yt.streams.filter(only_audio=True).first()
@@ -174,26 +189,41 @@ class App(ctk.CTk):
             temp_dir = os.path.join(os.path.expanduser("~"), "AppData", "Local", "Temp", "YoutubeVideosDownloader")
             os.makedirs(temp_dir, exist_ok=True)
 
-            video_stream.download(output_path=temp_dir, filename="temp_video.mp4")
-            audio_stream.download(output_path=temp_dir, filename="temp_audio.m4a")
+            try:
+                video_stream.download(output_path=temp_dir, filename="temp_video.mp4")
+            except Exception as e:
+                self.queue.put(f"❌ Error: Video cannot be downloaded because of unsupported quality, please try another quality")
+                self.audio_button.configure(state="normal")
+                self.video_button.configure(state="normal")
+                return
+            
+            try:
+                audio_stream.download(output_path=temp_dir, filename="temp_audio.m4a")
+            except Exception as e:
+                self.queue.put(f"❌ Error: Audio cannot be downloaded because of unsupported quality.")
+                self.audio_button.configure(state="normal")
+                self.video_button.configure(state="normal")
+                return
 
             output_file = os.path.join(output_dir, f"{self.yt.title}.mp4")
 
             # Merge video and audio using ffmpeg
-            self.queue.put(f"Merging video and audio for {self.yt.title}...")
+            self.queue.put(f"🏃‍♂️ Merging video and audio for {self.yt.title}...")
             command = f'ffmpeg -i "{os.path.join(temp_dir, "temp_video.mp4")}" -i "{os.path.join(temp_dir, "temp_audio.m4a")}" -c:v copy -c:a aac "{output_file}"'
             try:
-                subprocess.run(command, shell=True, check=True)
+                subprocess.run(command, shell=True, check=True, cwd=os.getcwd())
             except Exception as e:
-                self.queue.put(f"Merging file error!, trying to download the file as downloaded.mp4")
-                subprocess.run(f'ffmpeg -i "{os.path.join(temp_dir, "temp_video.mp4")}" -i "{os.path.join(temp_dir, "temp_audio.m4a")}" -c:v copy -c:a aac "{os.path.join(output_dir, "downloaded.mp4")}"', shell=True)
+                self.queue.put(f"⚠️ Merging file error!, trying to download the file as downloaded.mp4")
+                random_suffix = ''.join(random.choices('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=8))
+                output_file_with_random_suffix = os.path.join(output_dir, f"downloaded_{random_suffix}.mp4")
+                subprocess.run(f'ffmpeg -i "{os.path.join(temp_dir, "temp_video.mp4")}" -i "{os.path.join(temp_dir, "temp_audio.m4a")}" -c:v copy -c:a aac "{output_file_with_random_suffix}"', shell=True, cwd=os.getcwd())
                 print("Error:", e)
 
             # Remove the separate video and audio files
             os.remove(os.path.join(temp_dir, "temp_video.mp4"))
             os.remove(os.path.join(temp_dir, "temp_audio.m4a"))
 
-            self.queue.put(f"Downloaded {self.yt.title} in {quality} quality.")
+            self.queue.put(f"✅ Downloaded {self.yt.title} in {quality} quality.")
 
             # Enable buttons
             self.audio_button.configure(state="normal")
